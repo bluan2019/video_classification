@@ -322,3 +322,99 @@ class MixNeXtVladModel(models.BaseModel):
             vocab_size=vocab_size,
             is_training=is_training,
             **unused_params)
+
+
+class NeXtVLADModel2(models.BaseModel):
+    """Creates a NeXtVLAD based model.
+    Args:
+      model_input: A 'batch_size' x 'max_frames' x 'num_features' matrix of
+                   input features.
+      vocab_size: The number of classes in the dataset.
+      num_frames: A vector of length 'batch' which indicates the number of
+           frames for each video (before padding).
+    Returns:
+      A dictionary with a tensor containing the probability predictions of the
+      model in the 'predictions' key. The dimensions of the tensor are
+      'batch_size' x 'num_classes'.
+    """
+
+    def create_model(self,
+                     model_input,
+                     vocab_size,
+                     num_frames,
+                     cluster_size=None,
+                     hidden_size=None,
+                     is_training=True,
+                     groups=None,
+                     expansion=None,
+                     drop_rate=None,
+                     gating_reduction=None,
+                     **unused_params):
+        cluster_size = cluster_size or FLAGS.nextvlad_cluster_size
+        hidden1_size = hidden_size or FLAGS.nextvlad_hidden_size
+        gating_reduction = gating_reduction or FLAGS.gating_reduction
+        groups = groups or FLAGS.groups
+        drop_rate = drop_rate or FLAGS.drop_rate
+        expansion = expansion or FLAGS.expansion
+
+        max_frames = model_input.get_shape().as_list()[1]
+        mask = tf.sequence_mask(num_frames, max_frames, dtype=tf.float32)
+        video_nextvlad = NeXtVLAD(1024, max_frames, cluster_size, is_training, groups=groups, expansion=expansion)
+
+        with tf.variable_scope("video_VLAD"):
+            vlad_video = video_nextvlad.forward(model_input[:, :, 0:1024], mask=mask)
+        vlad = vlad_video
+
+        if drop_rate > 0.:
+            vlad = slim.dropout(vlad, keep_prob=1. - drop_rate, is_training=is_training, scope="vlad_dropout")
+
+        vlad_dim = vlad.get_shape().as_list()[1]
+        print("VLAD dimension", vlad_dim)
+        hidden1_weights = tf.get_variable("hidden1_weights",
+                                          [vlad_dim, hidden1_size],
+                                          initializer=slim.variance_scaling_initializer())
+
+        activation = tf.matmul(vlad, hidden1_weights)
+        activation = slim.batch_norm(
+            activation,
+            center=True,
+            scale=True,
+            is_training=is_training,
+            scope="hidden1_bn",
+            fused=False)
+
+        # activation = tf.nn.relu(activation)
+
+        gating_weights_1 = tf.get_variable("gating_weights_1",
+                                           [hidden1_size, hidden1_size // gating_reduction],
+                                           initializer=slim.variance_scaling_initializer())
+
+        gates = tf.matmul(activation, gating_weights_1)
+
+        gates = slim.batch_norm(
+            gates,
+            center=True,
+            scale=True,
+            is_training=is_training,
+            activation_fn=slim.nn.relu,
+            scope="gating_bn")
+
+        gating_weights_2 = tf.get_variable("gating_weights_2",
+                                           [hidden1_size // gating_reduction, hidden1_size],
+                                           initializer=slim.variance_scaling_initializer()
+                                           )
+        gates = tf.matmul(gates, gating_weights_2)
+
+        gates = tf.sigmoid(gates)
+        tf.summary.histogram("final_gates", gates)
+
+        activation = tf.multiply(activation, gates)
+
+        aggregated_model = getattr(video_level_models,
+                                   FLAGS.video_level_classifier_model)
+
+        return aggregated_model().create_model(
+            model_input=activation,
+            vocab_size=vocab_size,
+            is_training=is_training,
+            **unused_params)

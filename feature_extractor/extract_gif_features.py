@@ -153,7 +153,8 @@ def main(unused_argv):
         sum_rgb_features = features
       else:
         sum_rgb_features += features
-      rgb_features.append(_bytes_feature(quantize(features)))
+      # rgb_features.append(_bytes_feature(quantize(features)))
+      rgb_features.append(tf.train.Feature(float_list=tf.train.FloatList(value=features)))
 
     if not rgb_features:
       print >> sys.stderr, 'Could not get features for ' + video_file

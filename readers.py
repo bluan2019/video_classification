@@ -179,8 +179,10 @@ class YT8MFrameFeatureReader(BaseReader):
       feature_matrix: matrix of all frame-features
       num_frames: number of frames in the sequence
     """
+    new_features = tf.cast(tf.decode_raw(features, tf.uint8), tf.float32),
     decoded_features = tf.reshape(
-        tf.cast(tf.decode_raw(features, tf.uint8), tf.float32),
+        # tf.cast(tf.decode_raw(features, tf.uint8), tf.float32),
+        new_features, 
         [-1, feature_size])
 
     num_frames = tf.minimum(tf.shape(decoded_features)[0], max_frames)
@@ -262,6 +264,147 @@ class YT8MFrameFeatureReader(BaseReader):
     # convert to batch format.
     # TODO: Do proper batch reads to remove the IO bottleneck.
     batch_video_ids = tf.expand_dims(contexts["id"], 0)
+    batch_video_matrix = tf.expand_dims(video_matrix, 0)
+    batch_labels = tf.expand_dims(labels, 0)
+    batch_frames = tf.expand_dims(num_frames, 0)
+
+    return batch_video_ids, batch_video_matrix, batch_labels, batch_frames
+
+
+class GifFeatureReader(BaseReader):
+  """Reads TFRecords of SequenceExamples.
+
+  The TFRecords must contain SequenceExamples with the sparse in64 'labels'
+  context feature and a fixed length byte-quantized feature vector, obtained
+  from the features in 'feature_names'. The quantized features will be mapped
+  back into a range between min_quantized_value and max_quantized_value.
+  """
+
+  def __init__(self,
+               num_classes=3862,
+               feature_sizes=[1024],
+               feature_names=["rgb"],
+               max_frames=100):
+    """Construct a YT8MFrameFeatureReader.
+
+    Args:
+      num_classes: a positive integer for the number of classes.
+      feature_sizes: positive integer(s) for the feature dimensions as a list.
+      feature_names: the feature name(s) in the tensorflow record as a list.
+      max_frames: the maximum number of frames to process.
+    """
+
+    assert len(feature_names) == len(feature_sizes), \
+    "length of feature_names (={}) != length of feature_sizes (={})".format( \
+    len(feature_names), len(feature_sizes))
+
+    self.num_classes = num_classes
+    self.feature_sizes = feature_sizes
+    self.feature_names = feature_names
+    self.max_frames = max_frames
+
+  def get_video_matrix(self,
+                       features,
+                       feature_size,
+                       max_frames,
+                       max_quantized_value,
+                       min_quantized_value):
+    """Decodes features from an input string and quantizes it.
+
+    Args:
+      features: raw feature values
+      feature_size: length of each frame feature vector
+      max_frames: number of frames (rows) in the output feature_matrix
+      max_quantized_value: the maximum of the quantized value.
+      min_quantized_value: the minimum of the quantized value.
+
+    Returns:
+      feature_matrix: matrix of all frame-features
+      num_frames: number of frames in the sequence
+    """
+    # new_features = features
+    #if tf.rank(features) == 1:
+    new_features = tf.expand_dims(features, 0)
+    decoded_features = tf.reshape(
+        new_features,
+        [-1, feature_size])
+
+    num_frames = tf.minimum(tf.shape(decoded_features)[0], max_frames)
+    feature_matrix = decoded_features
+    feature_matrix = resize_axis(feature_matrix, 0, max_frames)
+    return feature_matrix, num_frames
+
+  def prepare_reader(self,
+                     filename_queue,
+                     max_quantized_value=2,
+                     min_quantized_value=-2):
+    """Creates a single reader thread for YouTube8M SequenceExamples.
+
+    Args:
+      filename_queue: A tensorflow queue of filename locations.
+      max_quantized_value: the maximum of the quantized value.
+      min_quantized_value: the minimum of the quantized value.
+
+    Returns:
+      A tuple of video indexes, video features, labels, and padding data.
+    """
+    reader = tf.TFRecordReader()
+    _, serialized_example = reader.read(filename_queue)
+
+    return self.prepare_serialized_examples(serialized_example,
+        max_quantized_value, min_quantized_value)
+
+  def prepare_serialized_examples(self, serialized_example,
+      max_quantized_value=2, min_quantized_value=-2):
+
+    contexts, features = tf.parse_single_sequence_example(
+        serialized_example,
+        context_features={"data_path": tf.FixedLenFeature(
+            [], tf.string),
+                          "labels": tf.VarLenFeature(tf.int64)},
+        sequence_features={
+            feature_name: tf.FixedLenSequenceFeature([1024], dtype=tf.float32)
+            for feature_name in self.feature_names
+        })
+
+    # read ground truth labels
+    labels = (tf.cast(
+        tf.sparse_to_dense(contexts["labels"].values, (self.num_classes,), 1, validate_indices=False),
+        tf.bool))
+
+    # loads (potentially) different types of features and concatenates them
+    num_features = len(self.feature_names)
+    assert num_features > 0, "No feature selected: feature_names is empty!"
+
+    assert len(self.feature_names) == len(self.feature_sizes), \
+    "length of feature_names (={}) != length of feature_sizes (={})".format( \
+    len(self.feature_names), len(self.feature_sizes))
+
+    num_frames = -1  # the number of frames in the video
+    feature_matrices = [None] * num_features  # an array of different features
+    for feature_index in range(num_features):
+      feature_matrix, num_frames_in_this_feature = self.get_video_matrix(
+          features[self.feature_names[feature_index]],
+          self.feature_sizes[feature_index],
+          self.max_frames,
+          max_quantized_value,
+          min_quantized_value)
+      if num_frames == -1:
+        num_frames = num_frames_in_this_feature
+      else:
+        tf.assert_equal(num_frames, num_frames_in_this_feature)
+
+      feature_matrices[feature_index] = feature_matrix
+
+    # cap the number of frames at self.max_frames
+    num_frames = tf.minimum(num_frames, self.max_frames)
+
+    # concatenate different features
+    video_matrix = tf.concat(feature_matrices, 1)
+
+    # convert to batch format.
+    # TODO: Do proper batch reads to remove the IO bottleneck.
+    batch_video_ids = tf.expand_dims(contexts["data_path"], 0)
     batch_video_matrix = tf.expand_dims(video_matrix, 0)
     batch_labels = tf.expand_dims(labels, 0)
     batch_frames = tf.expand_dims(num_frames, 0)

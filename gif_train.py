@@ -1,17 +1,6 @@
-# Copyright 2016 Google Inc. All Rights Reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#      http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS-IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""Binary for training Tensorflow models on the YouTube-8M dataset."""
+# coding=utf8
+
+"""Binary for training Tensorflow models on the gif dataset."""
 
 import json
 import os
@@ -33,11 +22,9 @@ from tensorflow import gfile
 from tensorflow import logging
 from tensorflow.python.client import device_lib
 from tensorflow.python import debug as tf_debug
-
 import utils
 
 FLAGS = flags.FLAGS
-# import ipdb; ipdb.set_trace()
 
 if __name__ == "__main__":
     # Dataset flags.
@@ -262,12 +249,12 @@ def build_graph(reader,
     tf.summary.histogram("model/input_raw", model_input_raw)
     # feature_dim = len(model_input_raw.get_shape()) - 1
 
-    offset = np.array([4./512] * 1024 + [0]*128)
+    offset = np.array([4./512] * 1024)
     offset = tf.constant(offset, dtype=tf.float32)
 
     eigen_val = tf.constant(np.sqrt(np.load("yt8m_pca/eigenvals.npy")[:1024, 0]), dtype=tf.float32)
 
-    model_input = tf.multiply(model_input_raw - offset,  tf.pad(eigen_val + 1e-4, [[0, 128]], constant_values=1.))
+    model_input = tf.multiply(model_input_raw - offset,  eigen_val + 1e-4)
     # model_input = tf.nn.l2_normalize(model_input_raw, feature_dim)
 
     tower_inputs = tf.split(model_input, num_towers)
@@ -383,10 +370,6 @@ class Trainer(object):
         self.export_model_steps = export_model_steps
         self.last_model_export_step = 0
 
-    #     if self.is_master and self.task.index > 0:
-    #       raise StandardError("%s: Only one replica of master expected",
-    #                           task_as_string(self.task))
-
     def run(self, start_new_model=False):
         """Performs training on the currently defined Tensorflow graph.
 
@@ -453,7 +436,8 @@ class Trainer(object):
 
         logging.info("%s: Starting managed session.", task_as_string(self.task))
         with sv.managed_session(target, config=self.config) as sess:
-            sess = tf_debug.LocalCLIDebugWrapperSession(sess)
+
+            # sess = tf_debug.LocalCLIDebugWrapperSession(sess)
             try:
                 logging.info("%s: Entering training loop.", task_as_string(self.task))
                 while (not sv.should_stop()) and (not self.max_steps_reached):
@@ -471,7 +455,9 @@ class Trainer(object):
                         hit_at_one = eval_util.calculate_hit_at_one(predictions_val, labels_val)
                         perr = eval_util.calculate_precision_at_equal_recall_rate(predictions_val,
                                                                                   labels_val)
-                        gap = eval_util.calculate_gap(predictions_val, labels_val, top_k=10)
+                        # import ipdb; ipdb.set_trace()
+                        gap = eval_util.calculate_gap(predictions_val, labels_val)
+                        
                         eval_end_time = time.time()
                         eval_time = eval_end_time - eval_start_time
 
@@ -570,7 +556,7 @@ class Trainer(object):
             return None
 
         meta_filename = latest_checkpoint + ".meta"
-        if not tf.io.gfile.exists(meta_filename):
+        if not gfile.Exists(meta_filename):
             logging.info("%s: No meta graph file found. Building a new model.",
                          task_as_string(self.task))
             return None
@@ -602,21 +588,14 @@ class Trainer(object):
                     batch_size=FLAGS.batch_size,
                     num_epochs=FLAGS.num_epochs)
 
-        return tf.compat.v1.train.Saver(max_to_keep=5, keep_checkpoint_every_n_hours=1.)
+        return tf.train.Saver(max_to_keep=5, keep_checkpoint_every_n_hours=1.)
 
 
 def get_reader():
     # Convert feature_names and feature_sizes to lists of values.
     feature_names, feature_sizes = utils.GetListOfFeatureNamesAndSizes(
         FLAGS.feature_names, FLAGS.feature_sizes)
-
-    if FLAGS.frame_features:
-        reader = readers.YT8MFrameFeatureReader(
-            feature_names=feature_names, feature_sizes=feature_sizes)
-    else:
-        reader = readers.YT8MAggregatedFeatureReader(
-            feature_names=feature_names, feature_sizes=feature_sizes)
-
+    reader = readers.GifFeatureReader(num_classes=80, feature_names=feature_names, feature_sizes=feature_sizes)
     return reader
 
 
@@ -674,7 +653,6 @@ def task_as_string(task):
 
 def main(unused_argv):
     # Load the environment.
-    # import ipdb; ipdb.set_trace()
     env = json.loads(os.environ.get("TF_CONFIG", "{}"))
 
     # Load the cluster data from the environment.

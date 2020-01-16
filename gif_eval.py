@@ -133,11 +133,11 @@ def build_graph(reader,
 
     # Normalize input features.
     # model_input = tf.nn.l2_normalize(model_input_raw, feature_dim)
-    offset = np.array([4. / 512] * 1024 + [0] * 128)
+    offset = np.array([4. / 512] * 1024)
     offset = tf.constant(offset, dtype=tf.float32)
 
     eigen_val = tf.constant(np.sqrt(np.load("yt8m_pca/eigenvals.npy")[:1024, 0]), dtype=tf.float32)
-    model_input = tf.multiply(model_input_raw - offset, tf.pad(eigen_val + 1e-4, [[0, 128]], constant_values=1.))
+    model_input = tf.multiply(model_input_raw - offset, eigen_val + 1e-4)
 
     with tf.variable_scope("tower"):
         result = model.create_model(model_input,
@@ -299,13 +299,7 @@ def evaluate():
         feature_names, feature_sizes = utils.GetListOfFeatureNamesAndSizes(
             flags_dict["feature_names"], flags_dict["feature_sizes"])
 
-        if flags_dict["frame_features"]:
-            reader = readers.YT8MFrameFeatureReader(feature_names=feature_names,
-                                                    feature_sizes=feature_sizes)
-        else:
-            reader = readers.YT8MAggregatedFeatureReader(feature_names=feature_names,
-                                                         feature_sizes=feature_sizes)
-
+        reader = readers.GifFeatureReader(num_classes=80, feature_names=feature_names, feature_sizes=feature_sizes)
         model = find_class_by_name(flags_dict["model"],
                                    [frame_level_models, video_level_models, nextvlad])()
         label_loss_fn = find_class_by_name(flags_dict["label_loss"], [losses])()
