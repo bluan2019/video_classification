@@ -15,6 +15,7 @@
 """Provides readers configured for different datasets."""
 
 import tensorflow as tf
+import random
 import utils
 
 from tensorflow import logging
@@ -308,7 +309,8 @@ class GifFeatureReader(BaseReader):
                        feature_size,
                        max_frames,
                        max_quantized_value,
-                       min_quantized_value):
+                       min_quantized_value,
+                       sample_rate=0.8):
     """Decodes features from an input string and quantizes it.
 
     Args:
@@ -331,7 +333,12 @@ class GifFeatureReader(BaseReader):
 
     num_frames = tf.minimum(tf.shape(decoded_features)[0], max_frames)
     feature_matrix = decoded_features
+    # random drop frames by sample_rate
+    selected_idx = tf.squeeze(tf.where(tf.random.uniform([num_frames]) < sample_rate), 1)
+    feature_matrix = tf.gather(feature_matrix, selected_idx)
+    num_frames = tf.minimum(tf.shape(decoded_features)[0], max_frames)
     feature_matrix = resize_axis(feature_matrix, 0, max_frames)
+    #feature_matrix = tf.Print(feature_matrix, [tf.shape(feature_matrix), selected_idx], 'feature_matrix: ')
     return feature_matrix, num_frames
 
   def prepare_reader(self,
