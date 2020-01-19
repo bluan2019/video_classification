@@ -1,11 +1,26 @@
 # coding=utf8
 
 import tensorflow as tf
+import pickle
 from feature_extractor.gif_feature_extractor import FeatureExtractor
-# from readers import GifFeatureReader
+from readers import GifFeatureReader
 import glob
 import os
 import numpy as np
+from tensorflow.python.framework import meta_graph
+
+
+class CustomUnpickler(pickle.Unpickler):
+    def find_class(self, module, name):
+        if name == 'LabelHelper':
+            from label_util import LabelHelper
+            return LabelHelper
+        return super().find_class(module, name)
+
+
+def _load_pkl(f_path):
+    pickle_data = CustomUnpickler(open(f_path, 'rb')).load()
+    return pickle_data
 
 
 class Predictor(object):
@@ -13,17 +28,23 @@ class Predictor(object):
         self.fe_extractor = FeatureExtractor(args.frame_model)
         self.fps = args.fps
         self.max_frames = args.max_frames  # 标识模型中最多用多少frame来进行预测
+        self.label_helper = _load_pkl(args.label_pkl)
         # self.reader = GifFeatureReader(num_classes=80, feature_names=["rgb"], feature_sizes=[1024])
         _meta_file = self._get_latest_meta_file(args.model_dir)
         self.sess = tf.Session(config=tf.ConfigProto(allow_soft_placement=True)) 
         saver = tf.train.import_meta_graph(_meta_file, clear_devices=False)
-        ckp_file = _meta_file.rstrip(".meta")
-        saver.restore(self.sess, ckp_file)
-        self.input_tensor = tf.get_collection("input_batch_raw")[0]
-        self.num_frames = tf.get_collection("num_frames")[0]
-        self.predictions_tensor = tf.get_collection("predictions")[0]
-        self.sess.run(self._set_up_init_ops(tf.get_collection_ref(tf.GraphKeys.LOCAL_VARIABLES)))
+        model_dir = "{0}/export/step_80010".format(args.model_dir)
+        meta_graph_def = tf.saved_model.loader.load(self.sess, [tf.saved_model.tag_constants.SERVING],
+                                                    model_dir)
 
+        # Get signature.
+        signature_def = meta_graph_def.signature_def
+        signature = signature_def[tf.saved_model.signature_constants.DEFAULT_SERVING_SIGNATURE_DEF_KEY]
+        self.input_tensor = signature.inputs["example_bytes"].name
+        self.predictions_tensor = signature.outputs["predictions"].name
+        self.predictions_indices = signature.outputs["class_indexes"].name
+
+        
     def _set_up_init_ops(self, variables):
         init_op_list = []
         for variable in list(variables):
@@ -35,14 +56,15 @@ class Predictor(object):
 
     def predict(self, vid_path):
         rgb_features = self.fe_extractor.extract_feature(vid_path, self.fps)
-        num_frames = min(rgb_features.shape[0], self.max_frames)
-        feature_matrix = self.resize_axis(rgb_features, 0, self.max_frames)
-        prediction_vals = self.sess.run([self.predictions_tensor], feed_dict={
-            self.input_tensor: np.array([feature_matrix]),
-            self.num_frames: np.array([num_frames])
-        })
+        prediction_vals, pred_indices = self.sess.run([self.predictions_tensor, self.predictions_indices], feed_dict={
+            self.input_tensor: rgb_features,
+        })  
+        pred_indices = pred_indices[0][0]
+        pred_labels = [self.label_helper.index_2_label.get(x, "None") for x in pred_indices]
         print(prediction_vals)
-        return prediction_vals
+        print(pred_indices)
+        print(pred_labels)
+        return prediction_vals, pred_indices
 
     def transform_feature(self, features):
         pass
@@ -94,7 +116,6 @@ def main(args):
     try:
         predictor = Predictor(args)
         video_path = args.input
-        # import ipdb; ipdb.set_trace()
         predictor.predict(video_path)
     finally:
         predictor.sess.close()
@@ -106,6 +127,7 @@ if __name__ == "__main__":
     parser.add_argument("--frame_model", type=str, help="the pretrained model for extracting rgb feature of the frames")
     parser.add_argument("--fps", type=float, default=10.0, help="how many frames to extract per second")
     parser.add_argument("--max_frames", type=int, default=100, help="maximum frames of features")
+    parser.add_argument("--label_pkl", type=str, default="data/label_pkl.pkl", help=" path to pkl of labels")
     parser.add_argument("--model_dir", type=str, help="path to the finally model")
     parser.add_argument("--input", type=str, help="path to video or gif file")
     _args = parser.parse_args()
