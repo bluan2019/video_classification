@@ -4,3 +4,10 @@ __pycache__
 *.pyc
 *.pth
 *.swp
+data
+gif_model_logistic
+test_log*
+log.txt
+nohup.out
+test.txt
+test_out.tfrecord
