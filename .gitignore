@@ -1,0 +1,6 @@
+*/*.npy
+.idea/
+__pycache__
+*.pyc
+*.pth
+*.swp
