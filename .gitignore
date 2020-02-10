@@ -11,3 +11,4 @@ log.txt
 nohup.out
 test.txt
 test_out.tfrecord
+feature_extractor/testdata

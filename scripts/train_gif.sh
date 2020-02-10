@@ -19,10 +19,10 @@ echo "data path: " $datapath
 echo "evaluation path: " $eval_path
 
 python gif_train.py ${parameters} --model=${model_name}  --num_readers=8 --learning_rate_decay_examples 2000000 \
-                --video_level_classifier_model=LogisticModel --label_loss=CrossEntropyLoss --start_new_model=True\
+                --video_level_classifier_model=LogisticModel --label_loss=CrossEntropyLoss --start_new_model=True \
                 --train_data_pattern=${datapath}/*.tfrecord --train_dir=${train_dir} --frame_features=True \
                 --feature_names="rgb" --feature_sizes="1024" --batch_size=80 --base_learning_rate=0.0002 \
-                --learning_rate_decay=0.8 --l2_penalty=7e-5 --max_step=700000 --num_gpu=2 --num_epochs=30
+                --learning_rate_decay=0.8 --l2_penalty=7e-4 --max_step=700000 --num_gpu=1 --num_epochs=30
 
 # python gif_eval.py ${parameters} --batch_size=80 --video_level_classifier_model=LogisticModel --l2_penalty=1e-5\
 #                --label_loss=CrossEntropyLoss --eval_data_pattern=${eval_path}/*.tfrecord --train_dir ${train_dir} \
