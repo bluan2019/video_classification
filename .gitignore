@@ -12,3 +12,4 @@ nohup.out
 test.txt
 test_out.tfrecord
 feature_extractor/testdata
+yt8m_pca
