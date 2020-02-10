@@ -17,6 +17,7 @@
 import tensorflow as tf
 import random
 import utils
+from label_util import none_mask
 
 from tensorflow import logging
 def resize_axis(tensor, axis, new_size, fill_value=0):
@@ -378,6 +379,11 @@ class GifFeatureReader(BaseReader):
     labels = (tf.cast(
         tf.sparse_to_dense(contexts["labels"].values, (self.num_classes,), 1, validate_indices=False),
         tf.bool))
+
+    # 过滤 “没有”
+    mask= tf.convert_to_tensor([bool(e)for e in none_mask], dtype=tf.bool)
+    labels = tf.math.logical_and(labels, mask)
+    #labels = tf.Print(labels, [labels, mask], 'label shape')
 
     # loads (potentially) different types of features and concatenates them
     num_features = len(self.feature_names)
