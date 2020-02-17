@@ -88,13 +88,14 @@ if __name__ == "__main__":
     # Other flags.
     flags.DEFINE_integer("num_readers", 8,
                          "How many threads to use for reading input files.")
-    flags.DEFINE_string("optimizer", "AdamOptimizer",
+    flags.DEFINE_string("optimizer", "GradientDescentOptimizer",
                         "What optimizer class to use.")
     flags.DEFINE_float("clip_gradient_norm", 1.0, "Norm to clip gradients to.")
     flags.DEFINE_bool(
         "log_device_placement", False,
         "Whether to write the device on which every op will run into the "
         "logs on startup.")
+    flags.DEFINE_string("label_pkl", "data/label_pkl.pkl", "path to the label_pkl file")
 
 
 def validate_class_name(flag_value, category, modules, expected_superclass):
@@ -281,7 +282,6 @@ def build_graph(reader,
 
                     predictions = result["predictions"]
                     tower_predictions.append(predictions)
-
                     if "loss" in result.keys():
                         label_loss = result["loss"]
                     else:
@@ -571,7 +571,8 @@ class Trainer(object):
     def build_model(self, model, reader):
         """Find the model and build the graph."""
 
-        label_loss_fn = find_class_by_name(FLAGS.label_loss, [losses])()
+        # label_loss_fn = find_class_by_name(FLAGS.label_loss, [losses])()
+        label_loss_fn = losses.GroupSoftmaxLoss(FLAGS.label_pkl)
         optimizer_class = find_class_by_name(FLAGS.optimizer, [tf.train])
 
         build_graph(reader=reader,

@@ -381,9 +381,9 @@ class GifFeatureReader(BaseReader):
         tf.bool))
 
     # 过滤 “没有”
-    mask= tf.convert_to_tensor([bool(e)for e in none_mask], dtype=tf.bool)
-    labels = tf.math.logical_and(labels, mask)
-    #labels = tf.Print(labels, [labels, mask], 'label shape')
+    # mask= tf.convert_to_tensor([bool(e)for e in none_mask], dtype=tf.bool)
+    # labels = tf.math.logical_and(labels, mask)
+    # labels = tf.Print(labels, [labels, mask], 'label shape')
 
     # loads (potentially) different types of features and concatenates them
     num_features = len(self.feature_names)

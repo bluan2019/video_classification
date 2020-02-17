@@ -4,7 +4,7 @@ datapath=/home/dev/xiongjun/gif_classify/gif_classify/records_data/train
 eval_path=/home/dev/xiongjun/gif_classify/gif_classify/records_data/test
 
 model_name=NeXtVLADModel2
-parameters="--groups=8 --nextvlad_cluster_size=128 --nextvlad_hidden_size=1024 \
+parameters="--groups=8 --nextvlad_cluster_size=128 --nextvlad_hidden_size=2048 \
             --expansion=2 --gating_reduction=8 --drop_rate=0.5"
 
 # train_dir=nextvlad_8g_5l2_5drop_128k_2048_2x80_logistic

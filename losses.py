@@ -15,6 +15,21 @@
 """Provides definitions for non-regularized training or test losses."""
 
 import tensorflow as tf
+import pickle
+import numpy as np
+
+
+class CustomUnpickler(pickle.Unpickler):
+    def find_class(self, module, name):
+        if name == 'LabelHelper':
+            from label_util import LabelHelper
+            return LabelHelper
+        return super().find_class(module, name)
+
+
+def _load_pkl(f_path):
+    pickle_data = CustomUnpickler(open(f_path, 'rb')).load()
+    return pickle_data
 
 
 class BaseLoss(object):
@@ -98,17 +113,51 @@ class SoftmaxLoss(BaseLoss):
 
 
 class GroupSoftmaxLoss(BaseLoss):
-  """Calculate the softmax loss between the predictions and labels.
+    def __init__(self, f_path):
+        super(GroupSoftmaxLoss, self).__init__()
+        self.indices_arr = self._load_groups_info(f_path)
+        self.base_sf_loss = SoftmaxLoss()
 
-  The function calculates the loss in the following way: first we feed the
-  predictions to the softmax activation function and then we calculate
-  the minus linear dot product between the logged softmax activations and the
-  normalized ground truth label.
+    def _load_groups_info(self, f_path):
+        label_helper = _load_pkl(f_path)
+        keys = list(label_helper.label_2_index.keys())
+        key_prefix = sorted(list(set(["_".join(key.split("_")[:-1]) for key in keys])))
+        key_pref_dict = dict([(pref, i) for i, pref in enumerate(key_prefix)])
+        indices_arr = [[] for _ in range(len(key_pref_dict))]
+        for key, index in label_helper.label_2_index.items():
+            prefix = "_".join(key.split("_")[:-1])
+            _idx = key_pref_dict[prefix]
+            indices_arr[_idx].append(index)
+        print(key_pref_dict)
+        result = [tf.convert_to_tensor(np.array(indices, dtype=int)) for indices in indices_arr]
+        return result
 
-  It is an extension to the one-hot label. It allows for more than one positive
-  labels for each sample.
-  """
+    def calculate_loss(self, predictions, labels, **unused_params):
+        with tf.name_scope("group_sf"):
+            pred_group_list = self._split_by_group_info(predictions)
+            label_group_list = self._split_by_group_info(labels)
+            group_loss_arr = []
+            for i, pred_group in enumerate(pred_group_list):
+                label_group = label_group_list[i]
+                cur_loss = self.base_sf_loss.calculate_loss(pred_group, label_group)
+                group_loss_arr.append(cur_loss)
+            concat_loss = tf.stack(group_loss_arr)
+            concat_loss = tf.Print(concat_loss,  group_loss_arr, "group_info: ")
+        return tf.reduce_sum(concat_loss)
 
+    def _split_by_group_info(self, tensors):
+        """
+        依据
+        :param tensors: tenor of shape [batch, total_label]
+        :return: list of tensors , that split by.
+        """
+        result = []
+        for i, indices in enumerate(self.indices_arr):
+            group_tensor = tf.gather(tensors, indices, axis=1)
+            result.append(group_tensor)
+        return result
+
+"""class GroupSoftmaxLoss(BaseLoss):
   def calculate_loss(self, predictions, labels, **unused_params):
     with tf.name_scope("loss_softmax"):
       epsilon = 1e-8
@@ -124,7 +173,8 @@ class GroupSoftmaxLoss(BaseLoss):
       softmax_loss = tf.negative(tf.reduce_sum(
           tf.multiply(norm_float_labels, tf.log(softmax_outputs)), 1))
       # tf.scatter_nd
-    return tf.reduce_mean(softmax_loss)
+    return tf.reduce_mean(softmax_loss) """
+
 
 from collections import defaultdict
 def get_label_groups():
