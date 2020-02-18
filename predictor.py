@@ -60,11 +60,14 @@ class Predictor(object):
             self.input_tensor: rgb_features,
         })  
         pred_indices = pred_indices[0][0]
+        pred_vals = prediction_vals[0][0]
         pred_labels = [self.label_helper.index_2_label.get(x, "None") for x in pred_indices]
-        print(prediction_vals)
-        print(pred_indices)
-        print(pred_labels)
-        return prediction_vals, pred_indices
+        # print(prediction_vals)
+        # print(pred_indices)
+        # print(pred_labels)
+        result_dict = self.select_by_group(pred_indices, pred_vals)
+        # print(result_dict)
+        return result_dict 
 
     def transform_feature(self, features):
         pass
@@ -110,6 +113,20 @@ class Predictor(object):
         pad_shape[axis] = new_size - shape[axis]
         pad_tensor = np.zeros(pad_shape, dtype=tensor.dtype)
         return np.concatenate((tensor, pad_tensor), axis=axis)
+
+    def select_by_group(self, pred_indices, pred_vals):
+        result = dict()
+        for i, val in enumerate(pred_vals):
+            ind = pred_indices[i]
+            raw_label = self.label_helper.index_2_label.get(ind)
+            key = "_".join(raw_label.split("_")[:-1])
+            if result.get(key) is None:
+                result[key] = [float(val), raw_label]
+            else:
+                max_score = result.get(key)[0]
+                if val > max_score:
+                    result[key] = [float(val), raw_label]
+        return result
 
 
 def main(args):
