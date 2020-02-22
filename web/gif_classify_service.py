@@ -17,3 +17,9 @@ def get_classify():
     result = predictor.predict(video_path)
     return json.dumps(result, ensure_ascii=False)
 
+
+@route_gif.route('/pic_classify', methods=['POST', 'GET'])
+def get_pic_classify():
+    video_path = request.json.get("f_path")
+    result = predictor.predict_pic(video_path)
+    return json.dumps(result, ensure_ascii=False)

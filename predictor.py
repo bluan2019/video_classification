@@ -3,6 +3,7 @@
 import tensorflow as tf
 import pickle
 from feature_extractor.gif_feature_extractor import FeatureExtractor
+from feature_extractor.pic_feature_extractor import PicFeatureExtractor
 from readers import GifFeatureReader
 import glob
 import os
@@ -26,6 +27,7 @@ def _load_pkl(f_path):
 class Predictor(object):
     def __init__(self, args):
         self.fe_extractor = FeatureExtractor(args.frame_model)
+        self.pic_extractor = PicFeatureExtractor(args.frame_model)
         self.fps = args.fps
         self.max_frames = args.max_frames  # 标识模型中最多用多少frame来进行预测
         self.label_helper = _load_pkl(args.label_pkl)
@@ -67,7 +69,18 @@ class Predictor(object):
         # print(pred_labels)
         result_dict = self.select_by_group(pred_indices, pred_vals)
         # print(result_dict)
-        return result_dict 
+        return result_dict
+
+    def predict_pic(self, vid_path):
+        rgb_features = self.pic_extractor.extract_feature(vid_path)
+        prediction_vals, pred_indices = self.sess.run([self.predictions_tensor, self.predictions_indices], feed_dict={
+            self.input_tensor: rgb_features,
+        })
+        pred_indices = pred_indices[0][0]
+        pred_vals = prediction_vals[0][0]
+        pred_labels = [self.label_helper.index_2_label.get(x, "None") for x in pred_indices]
+        result_dict = self.select_by_group(pred_indices, pred_vals)
+        return result_dict
 
     def transform_feature(self, features):
         pass
